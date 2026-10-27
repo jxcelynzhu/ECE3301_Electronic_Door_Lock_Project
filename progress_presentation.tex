@@ -129,8 +129,33 @@
 \newpage
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% SLIDE 3 — Introduction / Motivation
-% SPEAKER: <<SPEAKER_2>>
+% SLIDE 3 — FSM Diagram
+% SPEAKER: Santiago
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\slideheader{Function State Machine Diagram}{Santiago}
+
+\leftskip 0.5in \rightskip 0.7in
+\vspace{0.15in}
+
+\begin{multicols}{2}
+\includegraphics[height=6in,width = 4.5in]{FSM Diagram.png}
+
+\columnbreak
+
+\textbf{FSM Diagram States}
+\begin{itemize}
+  \item Locked $->$ Pass code Storage  
+  \item Locked $->$ Pass code $->$ Verify $->$ Success/Error
+  \item Error $->$ Lockout
+\end{itemize}
+\end{multicols}
+
+\leftskip 0in \rightskip 0in
+
+\newpage
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% SLIDE 4 — Door Design
+% SPEAKER: Jacob
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \slideheader{Door Design}{Jacob}
 
