@@ -1,4 +1,5 @@
 #include <xc.h>
+#include <stdio.h>
 #include "Configuration.h"
 
 //unsigned char keys[4][3]={{1,2,3},{4,5,6},{7,8,9},{'*',0,'#'}}; // 2D array for keypad matrix
@@ -8,13 +9,15 @@ unsigned char keys[4][3]={{1,2,3},{4,5,6},{7,8,9},{14,0,15}};
 
 
 void main(void) {
-    TRISB = 0xE0; // 0b11100000, determining input & output pins
-    ANSELB = 0; // Setting PORTB pins as digital I/O
-    
+    TRISB = 0xE0; // 11100000, determining input & output pins
+    ANSELB = 0x00; // Setting PORTB pins as digital I/O
+
+    printf("here");
+
     // Using PORTC for test LEDs
-    TRISC = 0; // PORTC pins = outputs
-    ANSELC = 0; // PORTC pins are digital
-    LATC = 0x00; // Driving all PORTC pins LOW
+    TRISD = 0x00; // PORTC pins = outputs
+    ANSELD = 0x00; // PORTC pins are digital
+    LATD = 0x00; // Driving all PORTC pins LOW
     
     char user_password[4]; // Stores the entered 4-digit password combination
     
@@ -59,7 +62,7 @@ void main(void) {
             // Storing selected key
             if (col != 3) {
                 unsigned char selected_key = keys[row][col]; // Stores value of the selected key
-                LATC = selected_key; // Binary representation of selected key is shown on the LEDs
+                LATD = selected_key; // Binary representation of selected key is shown on the LEDs
             }
         }
         
