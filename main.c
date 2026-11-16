@@ -7,12 +7,17 @@
 // Replaced non-integer characters with numbers for LED test
 unsigned char keys[4][3]={{1,2,3},{4,5,6},{7,8,9},{14,0,15}}; 
 
-
 void main(void) {
     TRISB = 0xE0; // 11100000, determining input & output pins
     ANSELB = 0x00; // Setting PORTB pins as digital I/O
-
-    printf("here");
+    
+    
+    /*
+    INTCON2bits.nRBPU = 0; // Enable pull-up resistors by setting RBPU register to 0
+    // Set pull-up resistors on RB1, RB3, RB5
+    WPUBbits.WPUB5 = 1;    // Enable pull-up on RB5
+    WPUBbits.WPUB6 = 1;    // Enable pull-up on RB6
+    WPUBbits.WPUB7 = 1;    // Enable pull-up on RB7*/
 
     // Using PORTC for test LEDs
     TRISD = 0x00; // PORTC pins = outputs
@@ -25,11 +30,12 @@ void main(void) {
         // Detecting selected key
         for (int row=0; row<4; row++){
             
-            // Initialize all rows to HIGH
-            LATBbits.LATB1 = 1;  
-            LATBbits.LATB2 = 1;
-            LATBbits.LATB3 = 1;
-            LATBbits.LATB4 = 1;
+            //Initialize all rows to HIGH
+            //LATBbits.LATB1 = 1;  
+            //LATBbits.LATB2 = 1;
+            //LATBbits.LATB3 = 1;
+            //LATBbits.LATB4 = 1;
+            LATB = 0x1E; // Set RB1-RB4 HIGH
             
             // Setting selected row to LOW
             if (row == 0) {
@@ -46,6 +52,8 @@ void main(void) {
             else{
                 LATBbits.LATB4=0; 
             }
+            
+            __delay_us(20);
             
             // Checking which column is LOW
             int col = 3;
@@ -69,3 +77,4 @@ void main(void) {
     }
     return;
 }
+
