@@ -53,7 +53,7 @@ void main(void) {
                 LATBbits.LATB4=0; 
             }
             
-            __delay_us(20);
+            _delay_us(20);
             
             // Checking which column is LOW
             int col = 3;
