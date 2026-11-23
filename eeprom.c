@@ -1,5 +1,6 @@
 #include <xc.h>
 #include <stdint.h>
+#include <stddef.h>
 
 void EEPROM_Write(uint16_t address, uint8_t data){
     
@@ -54,4 +55,21 @@ uint8_t EEPROM_Read(uint16_t address){
     EECON1bits.RD = 1;
     
     return EEDATA;
+}
+
+void EEPROM_WriteBlock(uint16_t address, const void *data, size_t len){
+    const uint8_t *bytes = (const uint8_t *)data;  // this is the memory address of the byte
+    for (size_t i = 0; i < len; i++){
+        // only write if byte is changed to reduce EEPROM wear
+        if (EEPROM_Read(address + i) != bytes[i]){
+            EEPROM_Write(address + i, bytes[i]);
+        }
+    }
+}
+
+void EEPROM_ReadBlock(uint16_t address, void *data, size_t len){
+    uint8_t *bytes = (uint8_t *)data;
+    for (size_t i = 0; i < len; i++){
+        bytes[i] = EEPROM_Read(address + i);
+    }
 }

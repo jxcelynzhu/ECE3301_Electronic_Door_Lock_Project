@@ -9822,6 +9822,13 @@ unsigned char __t3rd16on(void);
 # 34 "C:\\Program Files\\Microchip\\xc8\\v3.10\\pic\\include/xc.h" 2 3
 # 2 "eeprom.c" 2
 
+# 1 "C:\\Program Files\\Microchip\\xc8\\v3.10\\pic\\include\\c99/stddef.h" 1 3
+# 19 "C:\\Program Files\\Microchip\\xc8\\v3.10\\pic\\include\\c99/stddef.h" 3
+# 1 "C:\\Program Files\\Microchip\\xc8\\v3.10\\pic\\include\\c99/bits/alltypes.h" 1 3
+# 138 "C:\\Program Files\\Microchip\\xc8\\v3.10\\pic\\include\\c99/bits/alltypes.h" 3
+typedef int ptrdiff_t;
+# 20 "C:\\Program Files\\Microchip\\xc8\\v3.10\\pic\\include\\c99/stddef.h" 2 3
+# 4 "eeprom.c" 2
 
 void EEPROM_Write(uint16_t address, uint8_t data){
 
@@ -9876,4 +9883,21 @@ uint8_t EEPROM_Read(uint16_t address){
     EECON1bits.RD = 1;
 
     return EEDATA;
+}
+
+void EEPROM_WriteBlock(uint16_t address, const void *data, size_t len){
+    const uint8_t *bytes = (const uint8_t *)data;
+    for (size_t i = 0; i < len; i++){
+
+        if (EEPROM_Read(address + i) != bytes[i]){
+            EEPROM_Write(address + i, bytes[i]);
+        }
+    }
+}
+
+void EEPROM_ReadBlock(uint16_t address, void *data, size_t len){
+    uint8_t *bytes = (uint8_t *)data;
+    for (size_t i = 0; i < len; i++){
+        bytes[i] = EEPROM_Read(address + i);
+    }
 }

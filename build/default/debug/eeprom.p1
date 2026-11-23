@@ -804,99 +804,179 @@ Version 4.0 HI-TECH Software Intermediate Code
 "17390
 [; ;C:/Program Files/Microchip/MPLABX/v6.35/packs/Microchip/PIC18F-K_DFP/1.16.308/xc8\pic\include\proc/pic18f46k22.h: 17390: __asm("TOSU equ 0FFFh");
 [; <" TOSU equ 0FFFh ;# ">
-"4 eeprom.c
-[; ;eeprom.c: 4: void EEPROM_Write(uint16_t address, uint8_t data){
+"5 eeprom.c
+[; ;eeprom.c: 5: void EEPROM_Write(uint16_t address, uint8_t data){
 [v _EEPROM_Write `(v ~T0 @X0 1 ef2`us`uc ]
 {
 [e :U _EEPROM_Write ]
 [v _address `us ~T0 @X0 1 r1 ]
 [v _data `uc ~T0 @X0 1 r2 ]
 [f ]
-"7
-[; ;eeprom.c: 7:     while(EECON1bits.WR);
+"8
+[; ;eeprom.c: 8:     while(EECON1bits.WR);
 [e $U 877  ]
 [e :U 878 ]
 [e :U 877 ]
 [e $ != -> . . _EECON1bits 0 1 `i -> 0 `i 878  ]
 [e :U 879 ]
-"10
-[; ;eeprom.c: 10:     EEADRH = (uint8_t)((address >> 8) & 0x03);
-[e = _EEADRH -> & >> -> _address `ui -> 8 `i -> -> 3 `i `ui `uc ]
 "11
-[; ;eeprom.c: 11:     EEADR = (uint8_t)(address & 0xFF);
+[; ;eeprom.c: 11:     EEADRH = (uint8_t)((address >> 8) & 0x03);
+[e = _EEADRH -> & >> -> _address `ui -> 8 `i -> -> 3 `i `ui `uc ]
+"12
+[; ;eeprom.c: 12:     EEADR = (uint8_t)(address & 0xFF);
 [e = _EEADR -> & -> _address `ui -> -> 255 `i `ui `uc ]
-"13
-[; ;eeprom.c: 13:     EEDATA = data;
+"14
+[; ;eeprom.c: 14:     EEDATA = data;
 [e = _EEDATA _data ]
-"16
-[; ;eeprom.c: 16:     EECON1bits.EEPGD = 0;
-[e = . . _EECON1bits 0 7 -> -> 0 `i `uc ]
 "17
-[; ;eeprom.c: 17:     EECON1bits.CFGS = 0;
+[; ;eeprom.c: 17:     EECON1bits.EEPGD = 0;
+[e = . . _EECON1bits 0 7 -> -> 0 `i `uc ]
+"18
+[; ;eeprom.c: 18:     EECON1bits.CFGS = 0;
 [e = . . _EECON1bits 0 6 -> -> 0 `i `uc ]
-"20
-[; ;eeprom.c: 20:     EECON1bits.WREN = 1;
+"21
+[; ;eeprom.c: 21:     EECON1bits.WREN = 1;
 [e = . . _EECON1bits 0 2 -> -> 1 `i `uc ]
-"23
-[; ;eeprom.c: 23:     uint8_t gie_state = INTCONbits.GIE;
+"24
+[; ;eeprom.c: 24:     uint8_t gie_state = INTCONbits.GIE;
 [v _gie_state `uc ~T0 @X0 1 a ]
 [e = _gie_state . . _INTCONbits 1 7 ]
-"25
-[; ;eeprom.c: 25:     INTCONbits.GIE = 0;
+"26
+[; ;eeprom.c: 26:     INTCONbits.GIE = 0;
 [e = . . _INTCONbits 1 7 -> -> 0 `i `uc ]
-"28
-[; ;eeprom.c: 28:     EECON2 = 0x55;
-[e = _EECON2 -> -> 85 `i `uc ]
 "29
-[; ;eeprom.c: 29:     EECON2 = 0xAA;
+[; ;eeprom.c: 29:     EECON2 = 0x55;
+[e = _EECON2 -> -> 85 `i `uc ]
+"30
+[; ;eeprom.c: 30:     EECON2 = 0xAA;
 [e = _EECON2 -> -> 170 `i `uc ]
-"32
-[; ;eeprom.c: 32:     EECON1bits.WR = 1;
+"33
+[; ;eeprom.c: 33:     EECON1bits.WR = 1;
 [e = . . _EECON1bits 0 1 -> -> 1 `i `uc ]
-"35
-[; ;eeprom.c: 35:     INTCONbits.GIE = 1;
+"36
+[; ;eeprom.c: 36:     INTCONbits.GIE = 1;
 [e = . . _INTCONbits 1 7 -> -> 1 `i `uc ]
-"38
-[; ;eeprom.c: 38:     EECON1bits.WREN = 0;
-[e = . . _EECON1bits 0 2 -> -> 0 `i `uc ]
 "39
-[; ;eeprom.c: 39: }
+[; ;eeprom.c: 39:     EECON1bits.WREN = 0;
+[e = . . _EECON1bits 0 2 -> -> 0 `i `uc ]
+"40
+[; ;eeprom.c: 40: }
 [e :UE 876 ]
 }
-"41
-[; ;eeprom.c: 41: uint8_t EEPROM_Read(uint16_t address){
+"42
+[; ;eeprom.c: 42: uint8_t EEPROM_Read(uint16_t address){
 [v _EEPROM_Read `(uc ~T0 @X0 1 ef1`us ]
 {
 [e :U _EEPROM_Read ]
 [v _address `us ~T0 @X0 1 r1 ]
 [f ]
-"43
-[; ;eeprom.c: 43:     while (EECON1bits.WR);
+"44
+[; ;eeprom.c: 44:     while (EECON1bits.WR);
 [e $U 881  ]
 [e :U 882 ]
 [e :U 881 ]
 [e $ != -> . . _EECON1bits 0 1 `i -> 0 `i 882  ]
 [e :U 883 ]
-"46
-[; ;eeprom.c: 46:     EEADRH = (uint8_t)((address >> 8) & 0x03);
-[e = _EEADRH -> & >> -> _address `ui -> 8 `i -> -> 3 `i `ui `uc ]
 "47
-[; ;eeprom.c: 47:     EEADR = (uint8_t)(address & 0xFF);
+[; ;eeprom.c: 47:     EEADRH = (uint8_t)((address >> 8) & 0x03);
+[e = _EEADRH -> & >> -> _address `ui -> 8 `i -> -> 3 `i `ui `uc ]
+"48
+[; ;eeprom.c: 48:     EEADR = (uint8_t)(address & 0xFF);
 [e = _EEADR -> & -> _address `ui -> -> 255 `i `ui `uc ]
-"50
-[; ;eeprom.c: 50:     EECON1bits.EEPGD = 0;
-[e = . . _EECON1bits 0 7 -> -> 0 `i `uc ]
 "51
-[; ;eeprom.c: 51:     EECON1bits.CFGS = 0;
+[; ;eeprom.c: 51:     EECON1bits.EEPGD = 0;
+[e = . . _EECON1bits 0 7 -> -> 0 `i `uc ]
+"52
+[; ;eeprom.c: 52:     EECON1bits.CFGS = 0;
 [e = . . _EECON1bits 0 6 -> -> 0 `i `uc ]
-"54
-[; ;eeprom.c: 54:     EECON1bits.RD = 1;
+"55
+[; ;eeprom.c: 55:     EECON1bits.RD = 1;
 [e = . . _EECON1bits 0 0 -> -> 1 `i `uc ]
-"56
-[; ;eeprom.c: 56:     return EEDATA;
+"57
+[; ;eeprom.c: 57:     return EEDATA;
 [e ) _EEDATA ]
 [e $UE 880  ]
-"57
-[; ;eeprom.c: 57: }
+"58
+[; ;eeprom.c: 58: }
 [e :UE 880 ]
+}
+"60
+[; ;eeprom.c: 60: void EEPROM_WriteBlock(uint16_t address, const void *data, size_t len){
+[v _EEPROM_WriteBlock `(v ~T0 @X0 1 ef3`us`*Cv`ui ]
+{
+[e :U _EEPROM_WriteBlock ]
+[v _address `us ~T0 @X0 1 r1 ]
+[v _data `*Cv ~T0 @X0 1 r2 ]
+[v _len `ui ~T0 @X0 1 r3 ]
+[f ]
+"61
+[; ;eeprom.c: 61:     const uint8_t *bytes = (const uint8_t *)data;
+[v _bytes `*Cuc ~T0 @X0 1 a ]
+[e = _bytes -> _data `*Cuc ]
+"62
+[; ;eeprom.c: 62:     for (size_t i = 0; i < len; i++){
+{
+[v _i `ui ~T0 @X0 1 a ]
+[e = _i -> -> 0 `i `ui ]
+[e $U 888  ]
+[e :U 885 ]
+{
+"64
+[; ;eeprom.c: 64:         if (EEPROM_Read(address + i) != bytes[i]){
+[e $ ! != -> ( _EEPROM_Read (1 -> + -> _address `ui _i `us `i -> *U + _bytes * -> _i `ux -> -> # *U _bytes `ui `ux `i 889  ]
+{
+"65
+[; ;eeprom.c: 65:             EEPROM_Write(address + i, bytes[i]);
+[e ( _EEPROM_Write (2 , -> + -> _address `ui _i `us *U + _bytes * -> _i `ux -> -> # *U _bytes `ui `ux ]
+"66
+[; ;eeprom.c: 66:         }
+}
+[e :U 889 ]
+"67
+[; ;eeprom.c: 67:     }
+}
+[e ++ _i -> -> 1 `i `ui ]
+[e :U 888 ]
+[e $ < _i _len 885  ]
+[e :U 886 ]
+}
+"68
+[; ;eeprom.c: 68: }
+[e :UE 884 ]
+}
+"70
+[; ;eeprom.c: 70: void EEPROM_ReadBlock(uint16_t address, void *data, size_t len){
+[v _EEPROM_ReadBlock `(v ~T0 @X0 1 ef3`us`*v`ui ]
+{
+[e :U _EEPROM_ReadBlock ]
+[v _address `us ~T0 @X0 1 r1 ]
+[v _data `*v ~T0 @X0 1 r2 ]
+[v _len `ui ~T0 @X0 1 r3 ]
+[f ]
+"71
+[; ;eeprom.c: 71:     uint8_t *bytes = (uint8_t *)data;
+[v _bytes `*uc ~T0 @X0 1 a ]
+[e = _bytes -> _data `*uc ]
+"72
+[; ;eeprom.c: 72:     for (size_t i = 0; i < len; i++){
+{
+[v _i `ui ~T0 @X0 1 a ]
+[e = _i -> -> 0 `i `ui ]
+[e $U 894  ]
+[e :U 891 ]
+{
+"73
+[; ;eeprom.c: 73:         bytes[i] = EEPROM_Read(address + i);
+[e = *U + _bytes * -> _i `ux -> -> # *U _bytes `ui `ux ( _EEPROM_Read (1 -> + -> _address `ui _i `us ]
+"74
+[; ;eeprom.c: 74:     }
+}
+[e ++ _i -> -> 1 `i `ui ]
+[e :U 894 ]
+[e $ < _i _len 891  ]
+[e :U 892 ]
+}
+"75
+[; ;eeprom.c: 75: }
+[e :UE 890 ]
 }
