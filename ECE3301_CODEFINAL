@@ -1,0 +1,784 @@
+
+#include <xc.h>
+#include <stdint.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <string.h>
+
+#include "LCD.h"
+#include "PIC18F46K22-Config.h"
+
+// SYSTEM CONFIGURATION
+
+#define PASSWORD_LENGTH 4
+#define MAX_ATTEMPTS 3
+
+// Servo PWM uses RC2/CCP1. Timer1 ticks every 2 us at 16 MHz / 4 / 8.
+// The hardware toggles RC2 at each compare; the ISR schedules the next edge.
+// This produces 50 Hz PWM even during keypad waits, EEPROM writes and lockout.
+#define SERVO_FRAME_US       20000U
+#define SERVO_LOCKED_US       1500U  // Nominal 90 degrees
+#define SERVO_UNLOCKED_US      500U  // Nominal 0 degrees
+// pulse widths calibrated for servo.
+
+static volatile uint16_t servoRequestedTicks = SERVO_LOCKED_US / 2U;
+static uint16_t servoActiveTicks = SERVO_LOCKED_US / 2U;
+static uint16_t servoCompareTicks = 1000U;
+static bool servoHigh = false;
+
+#define MARKER_ADDRESS 0x00
+#define PASSWORD_ADDRESS 0x01
+#define PASSWORD_MARKER 0xA5
+
+// Keypad configuration
+char keys[4][3] = {
+    {'1', '2', '3'},
+    {'4', '5', '6'},
+    {'7', '8', '9'},
+    {'*', '0', '#'}
+};
+
+// Password variables
+char savedPassword[PASSWORD_LENGTH + 1] = {0};
+char enteredPassword[PASSWORD_LENGTH + 1] = {0};
+
+uint8_t digitCount = 0;
+uint8_t counter = 0;
+bool passwordCreated = false;
+
+
+
+// FUNCTION DECLARATIONS
+
+
+void hardware_init(void);
+// continuous servo PWM and masked PIN-entry display helpers.
+void servo_init(void);
+void servo_set_pulse(uint16_t pulse_us);
+void show_entered_digits(void);
+
+char keypad_get_key(void);
+
+// PIN changes are requested only at the locked PIN prompt.
+bool getPassword(bool allowChange);
+void createPassword(void);
+void enterPassword(void);
+
+void savePassword(void);
+void loadPassword(void);
+
+void EEPROM_Write(uint16_t address, uint8_t data);
+uint8_t EEPROM_Read(uint16_t address);
+
+void EEPROM_WriteBlock(uint16_t address,
+                       const void *data, size_t len);
+
+void EEPROM_ReadBlock(uint16_t address,
+                      void *data, size_t len);
+
+void checkPassword(bool changeRequested); // authenticate PIN changes.
+void system_lockout(void);
+void door_unlock(void);
+
+
+// HARDWARE INITIALIZATION
+
+
+void hardware_init(void)
+{   // CHANGED: LCD.h already defines _XTAL_FREQ as 16000000; do not redefine it.
+    // FIXED FREQUENCY: select 16 MHz.
+    INTCON = 0x00;
+    RCONbits.IPEN = 0;          // One interrupt vector, used by the servo ISR.
+    OSCTUNEbits.PLLEN = 0;     // Internal oscillator PLL is software controlled.
+    OSCCON = 0x72;             // IRCF=111 (16 MHz), SCS=10 (internal oscillator).
+    while (!OSCCONbits.HFIOFS);
+
+    // LCD and servo pins must be digital.
+    ANSELA = 0x00;
+    ANSELC = 0x00;
+
+    // Configure keypad pins
+    TRISB = 0xE0;
+
+    // Set PORTB to digital I/O
+    ANSELB = 0x00;
+
+    // Enable PORTB weak pull-ups on keypad columns
+    INTCON2bits.RBPU = 0;
+
+    WPUBbits.WPUB5 = 1;
+    WPUBbits.WPUB6 = 1;
+    WPUBbits.WPUB7 = 1;
+
+    // Initialize keypad rows
+    LATB = 0x1E;
+
+    // Configure PORTD as digital outputs
+    TRISD = 0x00;
+    ANSELD = 0x00;
+    LATD = 0x00;
+
+    // CHANGED: Start in the locked state position, then initialize the LCD interface.
+    servo_init();
+    LCD_init();
+
+    LCD_clear();
+
+    LCD_cursor_set(1, 1);
+    LCD_write_string("Door Lock System");
+
+    LCD_cursor_set(2, 1);
+    LCD_write_string("Initializing...");
+
+    __delay_ms(1500);
+
+    LCD_clear();
+}
+
+// Added Timer1/CCP1 servo PWM. Timer2's normal PWM cannot provide a
+// 20 ms period at this 16 MHz clock. Compare/toggle mode uses a 16-bit timer.
+void servo_init(void)
+{
+    CCP1CON = 0x00;            // Reset the CCP1 output latch LOW.
+    LATCbits.LATC2 = 0;
+    TRISCbits.TRISC2 = 0;      // Servo SIGNAL -> RC2 (pin 17 on the 40-pin PIC).
+
+    T1CON = 0x32;             // Fosc/4, 1:8 prescaler, 16-bit access, timer OFF.
+    T1GCON = 0x00;            // No Timer1 gating.
+    PIE1bits.TMR1IE = 0;      // Use CCP1 interrupts, not Timer1 overflow.
+    CCPTMRS0bits.C1TSEL = 0;  // CCP1 compare time base = Timer1.
+    TMR1H = 0;
+    TMR1L = 0;
+
+    servoRequestedTicks = SERVO_LOCKED_US / 2U;
+    servoActiveTicks = servoRequestedTicks;
+    servoHigh = false;
+    servoCompareTicks = 1000U; // First rising edge 2 ms after timer starts.
+    CCPR1H = (uint8_t)(servoCompareTicks >> 8);
+    CCPR1L = (uint8_t)servoCompareTicks;
+    CCP1CON = 0x02;           // Toggle RC2 on every compare match.
+    PIR1bits.CCP1IF = 0;
+    PIE1bits.CCP1IE = 1;
+    T1CONbits.TMR1ON = 1;
+    INTCONbits.PEIE = 1;
+    INTCONbits.GIE = 1;
+}
+
+// CHANGED: Update the requested width atomically on this 8-bit PIC.
+// The ISR applies a new width at the beginning of the next complete pulse.
+void servo_set_pulse(uint16_t pulse_us)
+{
+    uint8_t gie_state;
+    uint16_t ticks;
+
+    if (pulse_us < 500U) pulse_us = 500U;
+    if (pulse_us > 2500U) pulse_us = 2500U;
+    ticks = pulse_us / 2U;
+
+    gie_state = INTCONbits.GIE;
+    INTCONbits.GIE = 0;
+    servoRequestedTicks = ticks;
+    INTCONbits.GIE = gie_state;
+}
+
+// Hardware produces the PWM edges; this ISR only schedules them.
+// Added intervals to the PREVIOUS compare, so interrupt latency does not stretch
+// the pulse or the 20 ms frame. uint16_t arithmetic handles Timer1 wraparound.
+void __interrupt() door_lock_isr(void)
+{
+    if (PIE1bits.CCP1IE && PIR1bits.CCP1IF)
+    {
+        PIR1bits.CCP1IF = 0;
+
+        if (!servoHigh)        // The hardware has just produced a rising edge.
+        {
+            servoHigh = true;
+            servoActiveTicks = servoRequestedTicks;
+            servoCompareTicks = (uint16_t)(servoCompareTicks + servoActiveTicks);
+        }
+        else                   // The hardware has just produced a falling edge.
+        {
+            servoHigh = false;
+            servoCompareTicks = (uint16_t)(servoCompareTicks +
+                (SERVO_FRAME_US / 2U - servoActiveTicks));
+        }
+
+        CCPR1H = (uint8_t)(servoCompareTicks >> 8);
+        CCPR1L = (uint8_t)servoCompareTicks;
+    }
+}
+
+
+
+// KEYPAD SCANNING
+// CHANGED: Debounce presses and wait for release so held keys register once.
+
+
+char keypad_get_key(void)
+{
+    char pressedKey = 0;
+    uint8_t columnMask = 0; 
+
+    for (uint8_t row = 0; row < 4; row++)
+    {
+        // Set all keypad rows HIGH
+        LATB = 0x1E;
+
+        // Set selected row LOW
+        if (row == 0)
+        {
+            LATBbits.LATB1 = 0;
+        }
+        else if (row == 1)
+        {
+            LATBbits.LATB2 = 0;
+        }
+        else if (row == 2)
+        {
+            LATBbits.LATB3 = 0;
+        }
+        else
+        {
+            LATBbits.LATB4 = 0;
+        }
+
+        __delay_us(20);
+
+        // Check keypad columns
+        if (PORTBbits.RB5 == 0)
+        {
+            pressedKey = keys[row][0];
+            columnMask = 0x20;
+        }
+        else if (PORTBbits.RB6 == 0)
+        {
+            pressedKey = keys[row][1];
+            columnMask = 0x40;
+        }
+        else if (PORTBbits.RB7 == 0)
+        {
+            pressedKey = keys[row][2];
+            columnMask = 0x80;
+        }
+
+        if (pressedKey != 0)
+        {
+            break;
+        }
+    }
+
+    if (pressedKey != 0)
+    {
+        // CHANGED: Keep the selected row LOW while confirming the press.
+        __delay_ms(30);
+        if ((PORTB & columnMask) != 0)
+        {
+            LATB = 0x1E;
+            return 0;
+        }
+
+        // CHANGED: All rows LOW lets us detect any key still being held.
+        LATB = 0x00;
+        __delay_us(20);
+
+        // CHANGED: Require 30 consecutive milliseconds with every key released.
+        uint8_t releasedMs = 0;
+        while (releasedMs < 30)
+        {
+            if ((PORTB & 0xE0) == 0xE0)
+                releasedMs++;
+            else
+                releasedMs = 0;
+            __delay_ms(1);
+        }
+    }
+
+    LATB = 0x1E; // CHANGED: Restore rows only after the key has been released.
+    return pressedKey;
+}
+
+
+
+// RECEIVE PASSWORD FROM USER
+
+
+// CHANGED: Keep the current prompt on line 1 and show only masked PIN digits.
+void show_entered_digits(void)
+{
+    LCD_cursor_set(2, 1);
+    LCD_write_string("                ");
+    LCD_cursor_set(2, 1);
+    for (uint8_t i = 0; i < digitCount; i++)
+    {
+        LCD_write_char('*');
+    }
+}
+
+bool getPassword(bool allowChange)
+{
+    digitCount = 0;
+
+    memset(enteredPassword, 0, sizeof(enteredPassword));
+
+    while (1)
+    {
+        char key = keypad_get_key();
+
+        if (key == 0)
+        {
+            continue;
+        }
+
+        // User enters a number
+        if (key >= '0' && key <= '9')
+        {
+            if (digitCount < PASSWORD_LENGTH)
+            {
+                enteredPassword[digitCount] = key;
+
+                digitCount++;
+                show_entered_digits(); // CHANGED: Give masked entry feedback.
+            }
+        }
+
+        // Clear current password entry
+        else if (key == '*')
+        {
+            // CHANGED: At an empty locked prompt, * starts authenticated change.
+            // With digits entered, * keeps its original clear-entry behavior.
+            if (allowChange && digitCount == 0)
+            {
+                return false;
+            }
+
+            digitCount = 0;
+
+            memset(enteredPassword, 0,
+                   sizeof(enteredPassword));
+
+            show_entered_digits(); // CHANGED: Preserve the entry prompt.
+        }
+
+        // Submit password
+        else if (key == '#')
+        {
+            if (digitCount == PASSWORD_LENGTH)
+            {
+                enteredPassword[PASSWORD_LENGTH] = '\0';
+
+                return true; // CHANGED: Four-digit PIN submitted.
+            }
+
+            else
+            {
+                // CHANGED: Preserve the prompt and restore entered stars.
+                LCD_cursor_set(2, 1);
+                LCD_write_string("Enter 4 Digits  ");
+
+                __delay_ms(1000);
+
+                show_entered_digits();
+            }
+        }
+    }
+}
+
+
+
+// CREATE INITIAL PASSWORD
+
+
+void createPassword(void)
+{
+    // CHANGED: Confirm new PINs before replacing the saved PIN.
+    char newPassword[PASSWORD_LENGTH + 1];
+
+    while (1)
+    {
+        LCD_clear();
+
+        LCD_cursor_set(1, 1);
+        LCD_write_string("Create New PIN");
+
+        LCD_cursor_set(2, 1);
+        LCD_write_string("4 Digits, then #"); // CHANGED: Explain how to submit.
+
+        getPassword(false); // CHANGED: * only clears during creation.
+        strcpy(newPassword, enteredPassword);
+
+        LCD_clear();
+        LCD_cursor_set(1, 1);
+        LCD_write_string("Confirm New PIN");
+        LCD_cursor_set(2, 1);
+        LCD_write_string("4 Digits, then #");
+        getPassword(false);
+
+        if (strcmp(newPassword, enteredPassword) == 0)
+        {
+            break;
+        }
+
+        LCD_clear();
+        LCD_cursor_set(1, 1);
+        LCD_write_string("PINs Don't Match");
+        LCD_cursor_set(2, 1);
+        LCD_write_string("Please Try Again");
+        __delay_ms(1500);
+    }
+
+    // Copy entered password into saved password
+    strcpy(savedPassword, enteredPassword);
+
+    // Store password in EEPROM
+    savePassword();
+
+    passwordCreated = true;
+
+    LCD_clear();
+
+    LCD_cursor_set(1, 1);
+    LCD_write_string("PIN Saved!");
+
+    LCD_cursor_set(2, 1);
+    LCD_write_string("System Ready");
+
+    __delay_ms(1500);
+
+    LCD_clear();
+}
+
+
+
+// SAVE PASSWORD TO EEPROM
+
+
+void savePassword(void)
+{
+    // Write password into EEPROM
+    EEPROM_WriteBlock(
+        PASSWORD_ADDRESS,
+        savedPassword,
+        PASSWORD_LENGTH
+    );
+
+    // Write marker LAST to indicate valid password
+    EEPROM_Write(
+        MARKER_ADDRESS,
+        PASSWORD_MARKER
+    );
+}
+
+
+
+// LOAD PASSWORD FROM EEPROM
+
+
+void loadPassword(void)
+{
+    // Check if password was previously created
+    uint8_t marker = EEPROM_Read(MARKER_ADDRESS);
+
+    if (marker == PASSWORD_MARKER)
+    {
+        // Retrieve saved password
+        EEPROM_ReadBlock(
+            PASSWORD_ADDRESS,
+            savedPassword,
+            PASSWORD_LENGTH
+        );
+
+        savedPassword[PASSWORD_LENGTH] = '\0';
+
+        passwordCreated = true;
+    }
+
+    else
+    {
+        passwordCreated = false;
+    }
+}
+
+
+
+// ENTER PASSWORD TO UNLOCK DOOR
+
+
+void enterPassword(void)
+{
+    LCD_clear();
+
+    LCD_cursor_set(1, 1);
+    LCD_write_string("Enter Password");
+
+    LCD_cursor_set(2, 1);
+    LCD_write_string("*=Change #=Enter"); // CHANGED: PIN-change shortcut.
+
+    // CHANGED: Require the existing PIN before permitting a new PIN to be saved.
+    bool changeRequested = !getPassword(true);
+    if (changeRequested)
+    {
+        LCD_clear();
+        LCD_cursor_set(1, 1);
+        LCD_write_string("Current PIN");
+        LCD_cursor_set(2, 1);
+        LCD_write_string("4 Digits, then #");
+        getPassword(false);
+    }
+
+    checkPassword(changeRequested);
+}
+
+
+// CHECK PASSWORD
+
+
+void checkPassword(bool changeRequested)
+{
+    // Compare entered password with saved password
+    if (strcmp(enteredPassword, savedPassword) == 0)
+    {
+        // Correct password
+        counter = 0;
+
+        LCD_clear();
+
+        // CHANGED: A PIN change authenticates the owner without unlocking.
+        if (changeRequested)
+        {
+            createPassword();
+        }
+        else
+        {
+            door_unlock();
+        }
+    }
+
+    else
+    {
+        // Incorrect password
+        counter++;
+
+        LCD_clear();
+
+        LCD_cursor_set(1, 1);
+        LCD_write_string("Incorrect PIN");
+
+        LCD_cursor_set(2, 1);
+        LCD_write_string("Try Again");
+
+        __delay_ms(1500);
+
+        LCD_clear();
+
+        // Check maximum attempts
+        if (counter >= MAX_ATTEMPTS)
+        {
+            counter = 0;
+
+            system_lockout();
+        }
+    }
+}
+
+
+
+// SYSTEM LOCKOUT
+
+
+void system_lockout(void)
+{
+    // CHANGED: Keep commanding LOCKED throughout the 30-second lockout.
+    servo_set_pulse(SERVO_LOCKED_US);
+    LCD_clear();
+
+    LCD_cursor_set(1, 1);
+    LCD_write_string("System Locked");
+
+    LCD_cursor_set(2, 1);
+    LCD_write_string("Wait 30 Seconds");
+
+    // Lockout for 30 seconds
+    for (uint8_t i = 0; i < 30; i++)
+    {
+        __delay_ms(1000);
+    }
+
+    LCD_clear();
+
+    LCD_cursor_set(1, 1);
+    LCD_write_string("Lockout Ended");
+
+    __delay_ms(1000);
+
+    LCD_clear();
+}
+
+
+
+// DOOR UNLOCK FUNCTION
+
+
+void door_unlock(void)
+{
+    LCD_cursor_set(1, 1);
+    LCD_write_string("Access Granted");
+
+    LCD_cursor_set(2, 1);
+    LCD_write_string("Press * to Lock"); // CHANGED: Show the relock control.
+
+
+    // Stay unlocked until * is pressed and released.
+    servo_set_pulse(SERVO_UNLOCKED_US);
+
+    // PIN-change logic is not called while this loop is active.
+    while (keypad_get_key() != '*')
+    {
+        // Other keys are ignored while unlocked.
+    }
+
+   
+    // The * release was consumed, so it cannot also request a PIN change.
+    servo_set_pulse(SERVO_LOCKED_US);
+    LCD_clear();
+    LCD_cursor_set(1, 1);
+    LCD_write_string("Door Locked");
+    __delay_ms(500);           // Allow the servo to reach the locked position.
+
+    LCD_clear();
+}
+
+
+
+// EEPROM WRITE FUNCTION
+
+
+void EEPROM_Write(uint16_t address, uint8_t data)
+{
+    // Wait for previous write cycle
+    while (EECON1bits.WR);
+
+    // Load EEPROM address
+    EEADRH = (uint8_t)((address >> 8) & 0x03);
+    EEADR = (uint8_t)(address & 0xFF);
+
+    // Load data
+    EEDATA = data;
+
+    // Select DATA EEPROM
+    EECON1bits.EEPGD = 0;
+    EECON1bits.CFGS = 0;
+
+    // Enable writes
+    EECON1bits.WREN = 1;
+
+    // Save interrupt state
+    uint8_t gie_state = INTCONbits.GIE;
+
+    // Disable interrupts
+    INTCONbits.GIE = 0;
+
+    // Required EEPROM unlock sequence
+    EECON2 = 0x55;
+    EECON2 = 0xAA;
+
+    // Begin write
+    EECON1bits.WR = 1;
+
+    // Restore previous interrupt state
+    INTCONbits.GIE = gie_state;
+
+    // Wait for write completion
+    while (EECON1bits.WR);
+
+    // Disable EEPROM writes
+    EECON1bits.WREN = 0;
+}
+
+
+// EEPROM READ FUNCTION
+
+
+uint8_t EEPROM_Read(uint16_t address)
+{
+    // Wait for ongoing write
+    while (EECON1bits.WR);
+
+    // Load address
+    EEADRH = (uint8_t)((address >> 8) & 0x03);
+    EEADR = (uint8_t)(address & 0xFF);
+
+    // Select DATA EEPROM
+    EECON1bits.EEPGD = 0;
+    EECON1bits.CFGS = 0;
+
+    // Start read
+    EECON1bits.RD = 1;
+
+    return EEDATA;
+}
+
+
+
+// EEPROM WRITE BLOCK
+
+
+void EEPROM_WriteBlock(
+    uint16_t address,
+    const void *data,
+    size_t len
+)
+{
+    const uint8_t *bytes = (const uint8_t *)data;
+
+    for (size_t i = 0; i < len; i++)
+    {
+        // Only write if data has changed
+        if (EEPROM_Read(address + i) != bytes[i])
+        {
+            EEPROM_Write(address + i, bytes[i]);
+        }
+    }
+}
+
+
+
+// EEPROM READ BLOCK
+
+
+void EEPROM_ReadBlock(
+    uint16_t address,
+    void *data,
+    size_t len
+)
+{
+    uint8_t *bytes = (uint8_t *)data;
+
+    for (size_t i = 0; i < len; i++)
+    {
+        bytes[i] = EEPROM_Read(address + i);
+    }
+}
+
+// MAIN PROGRAM
+
+void main(void)
+{
+    // Initialize hardware
+    hardware_init();
+
+    // Retrieve saved password from EEPROM
+    loadPassword();
+
+    // If no password exists, create one
+    if (!passwordCreated)
+    {
+        createPassword();
+    }
+
+    // Main door lock operation
+    while (1)
+    {
+        // Ask user to enter password
+        enterPassword();
+    }
+}
